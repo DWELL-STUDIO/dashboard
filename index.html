@@ -171,6 +171,24 @@
     /* Info note */
     .info-note { font-size:11px; color:var(--muted); padding:8px 22px 12px; line-height:1.5; }
 
+    /* Table preview (1 row visible) */
+    .tcard-preview { overflow:hidden; max-height:46px; }
+    .tcard-preview table thead { display:none; }
+    .tcard-preview tbody tr:not(:first-child) { display:none; }
+
+    /* Expand button */
+    .expand-btn { display:flex; align-items:center; justify-content:center; gap:6px; padding:12px 22px; border-top:.5px solid var(--bg); font-size:12px; font-weight:500; color:var(--blue); cursor:pointer; background:none; border-left:none; border-right:none; border-bottom:none; width:100%; font-family:var(--font); transition:background .15s; }
+    .expand-btn:hover { background:var(--bg); }
+    .expand-btn .expand-icon { font-size:16px; line-height:1; }
+
+    /* Table expand modal */
+    .table-modal-card { background:var(--card); border-radius:16px; width:min(900px,95vw); max-height:88vh; display:flex; flex-direction:column; position:relative; transform:translateY(16px); transition:transform .3s cubic-bezier(.22,1,.36,1); overflow:hidden; }
+    .overlay.open .table-modal-card { transform:translateY(0); }
+    .table-modal-head { display:flex; align-items:center; justify-content:space-between; padding:18px 24px; border-bottom:.5px solid var(--border); flex-shrink:0; }
+    .table-modal-title { font-size:11px; font-weight:600; color:var(--sub); letter-spacing:.06em; text-transform:uppercase; }
+    .table-modal-sub { font-size:12px; color:var(--muted); margin-left:10px; }
+    .table-modal-body { overflow-y:auto; flex:1; }
+
     /* SQL box */
     .sql-box { background:var(--card); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow); }
     .sql-title { font-size:11px; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
@@ -298,12 +316,13 @@
     <!-- Time chart -->
     <div class="tc-wrap">
       <div class="tc-top">
-        <span class="tc-wrap-title">Visites dans le temps</span>
+        <div>
+          <span class="tc-wrap-title" id="tc-title">Heure de la journée</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:8px" id="tc-sub">pic = meilleure heure pour poster</span>
+        </div>
         <div class="time-tabs">
-          <button class="time-tab" data-mode="month">Mois</button>
-          <button class="time-tab" data-mode="week">Semaine</button>
-          <button class="time-tab active" data-mode="day">Jour</button>
-          <button class="time-tab" data-mode="hour">Heure</button>
+          <button class="time-tab active" data-mode="hour">Jour</button>
+          <button class="time-tab" data-mode="day">Semaine</button>
         </div>
       </div>
       <div class="time-chart" id="time-chart"><div class="state-empty" style="padding:0;width:100%;font-size:12px">—</div></div>
@@ -323,16 +342,19 @@
       <div class="cal-grid" id="cal-grid"></div>
     </div>
 
-    <!-- Leads table -->
+    <!-- Leads table (preview + expand) -->
     <div class="tcard">
       <div class="tcard-head">
         <span class="tcard-title">Leads — Form submissions</span>
         <span class="tcard-count" id="leads-count">—</span>
       </div>
-      <div id="leads-table"><div class="state-empty">No leads yet.</div></div>
+      <div class="tcard-preview" id="leads-preview"><div class="state-empty" style="padding:14px 22px">No leads yet.</div></div>
+      <button class="expand-btn" id="leads-expand-btn" onclick="openTableModal('leads')" style="display:none">
+        <span class="expand-icon">＋</span><span id="leads-expand-label">See all leads</span>
+      </button>
     </div>
 
-    <!-- Events table (scrollable full database) -->
+    <!-- Events table (preview + expand) -->
     <div class="tcard">
       <div class="tcard-head">
         <span class="tcard-title">Page Views</span>
@@ -342,8 +364,10 @@
           <button id="toggle-all" onclick="setEventsMode('all')">All events</button>
         </div>
       </div>
-      <div class="info-note" id="events-note">Each row = one unique visit. <strong>Heartbeats</strong> (session pings sent every ~45 s while someone is on the page) are hidden — toggle "All events" to see them.</div>
-      <div class="tcard-scroll" id="events-table"><div class="state-empty">—</div></div>
+      <div class="tcard-preview" id="events-preview"><div class="state-empty" style="padding:14px 22px">—</div></div>
+      <button class="expand-btn" id="events-expand-btn" onclick="openTableModal('events')" style="display:none">
+        <span class="expand-icon">＋</span><span id="events-expand-label">See all page views</span>
+      </button>
     </div>
 
     <!-- SQL box -->
@@ -357,6 +381,20 @@ DELETE FROM events WHERE page_id = 'villa-espinette';
 DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     </div>
   </main>
+
+  <!-- Table expand modal -->
+  <div class="overlay" id="table-overlay">
+    <div class="table-modal-card">
+      <div class="table-modal-head">
+        <div style="display:flex;align-items:baseline;gap:0">
+          <span class="table-modal-title" id="table-modal-title">—</span>
+          <span class="table-modal-sub" id="table-modal-sub"></span>
+        </div>
+        <button class="modal-x" id="table-close">✕</button>
+      </div>
+      <div class="table-modal-body" id="table-modal-body"></div>
+    </div>
+  </div>
 
   <!-- Message modal -->
   <div class="overlay" id="msg-overlay">
@@ -557,7 +595,6 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     eventsMode = mode;
     document.getElementById('toggle-pv').classList.toggle('active', mode === 'pageviews');
     document.getElementById('toggle-all').classList.toggle('active', mode === 'all');
-    document.getElementById('events-note').style.display = mode === 'pageviews' ? '' : 'none';
     renderEventsTable(_allEvents, mode);
   }
 
@@ -565,14 +602,20 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     const rows = mode === 'pageviews'
       ? events.filter(e => e.event_type === 'page_view')
       : events;
+    const hbCount = events.filter(e => e.event_type === 'heartbeat').length;
     document.getElementById('events-count').textContent =
       mode === 'pageviews'
         ? rows.length + ' page views'
-        : events.length + ' events (' + events.filter(e=>e.event_type==='heartbeat').length + ' heartbeats)';
+        : events.length + ' events (' + hbCount + ' heartbeats)';
+
     if (!rows.length) {
-      document.getElementById('events-table').innerHTML = '<div class="state-empty">No events yet.</div>';
+      const empty = '<div class="state-empty" style="padding:14px 22px">No events yet.</div>';
+      document.getElementById('events-preview').innerHTML = empty;
+      document.getElementById('events-expand-btn').style.display = 'none';
+      window._eventsTableHtml = '';
       return;
     }
+
     const evRows = rows.map(e => {
       const d = new Date(e.created_at);
       const time = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -588,8 +631,44 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
         <td><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub)"><span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0"></span>${platform}</span></td>
       </tr>`;
     }).join('');
-    document.getElementById('events-table').innerHTML = `<table><thead><tr><th>Time</th><th>Event</th><th>Device</th><th>Visitor ID</th><th>Source</th></tr></thead><tbody>${evRows}</tbody></table>`;
+    const tableHtml = `<table><thead><tr><th>Time</th><th>Event</th><th>Device</th><th>Visitor ID</th><th>Source</th></tr></thead><tbody>${evRows}</tbody></table>`;
+
+    window._eventsTableHtml = tableHtml;
+    window._eventsMode = mode;
+    window._eventsRowCount = rows.length;
+    window._eventsHbCount = hbCount;
+
+    document.getElementById('events-preview').innerHTML = tableHtml;
+    document.getElementById('events-expand-btn').style.display = 'flex';
+    const label = mode === 'pageviews'
+      ? `See all ${rows.length} page view${rows.length!==1?'s':''}`
+      : `See all ${events.length} events`;
+    document.getElementById('events-expand-label').textContent = label;
   }
+
+  // ── Table expand modal
+  function openTableModal(which) {
+    let title, sub, html;
+    if (which === 'leads') {
+      const n = (window._leads||[]).length;
+      title = 'Leads — Form submissions';
+      sub = n + ' total';
+      html = window._leadsTableHtml || '';
+    } else {
+      const mode = window._eventsMode || 'pageviews';
+      const n = window._eventsRowCount || 0;
+      const hb = window._eventsHbCount || 0;
+      title = mode === 'pageviews' ? 'Page Views' : 'All Events';
+      sub = mode === 'pageviews' ? n + ' page views' : n + ' events · ' + hb + ' heartbeats';
+      html = window._eventsTableHtml || '';
+    }
+    document.getElementById('table-modal-title').textContent = title;
+    document.getElementById('table-modal-sub').textContent = ' · ' + sub;
+    document.getElementById('table-modal-body').innerHTML = html || '<div class="state-empty">No data.</div>';
+    document.getElementById('table-overlay').classList.add('open');
+  }
+  document.getElementById('table-close').addEventListener('click', () => document.getElementById('table-overlay').classList.remove('open'));
+  document.getElementById('table-overlay').addEventListener('click', e => { if (e.target===document.getElementById('table-overlay')) document.getElementById('table-overlay').classList.remove('open'); });
 
   function render(events, leads) {
     _allEvents = events;
@@ -645,30 +724,39 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     // Platform chart
     renderPlatformChart(views);
 
-    // Leads table
+    // Leads table — preview + expand
+    window._leads = leads;
     document.getElementById('leads-count').textContent = leads.length + ' total';
     if (!leads.length) {
-      document.getElementById('leads-table').innerHTML = '<div class="state-empty">No form submissions yet.</div>';
+      document.getElementById('leads-preview').innerHTML = '<div class="state-empty" style="padding:14px 22px">No form submissions yet.</div>';
+      document.getElementById('leads-expand-btn').style.display = 'none';
     } else {
-      const rows = leads.map((l,i) => {
-        const d = new Date(l.created_at);
-        const time = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-        const msg = l.message || '';
-        const preview = msg.length > 45 ? msg.slice(0,45) + '…' : (msg || '—');
-        return `<tr>
-          <td class="td-time">${time}</td>
-          <td class="td-main">${l.name||'—'}</td>
-          <td><a href="mailto:${l.email||''}" style="color:var(--blue);text-decoration:none">${l.email||'—'}</a></td>
-          <td>${l.phone||'—'}</td>
-          <td class="td-msg" onclick="openMsgModal(${i})" title="Cliquer pour lire le message complet">${preview}</td>
-        </tr>`;
-      });
-      document.getElementById('leads-table').innerHTML = `<table><thead><tr><th>Date</th><th>Name</th><th>Email</th><th>Phone</th><th>Message</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-      window._leads = leads;
+      const leadsHtml = buildLeadsTable(leads);
+      document.getElementById('leads-preview').innerHTML = leadsHtml;
+      document.getElementById('leads-expand-btn').style.display = 'flex';
+      document.getElementById('leads-expand-label').textContent = `See all ${leads.length} lead${leads.length!==1?'s':''}`;
+      window._leadsTableHtml = leadsHtml;
     }
 
-    // Events table
+    // Events table — preview + expand
     renderEventsTable(events, eventsMode);
+  }
+
+  function buildLeadsTable(leads) {
+    const rows = leads.map((l,i) => {
+      const d = new Date(l.created_at);
+      const time = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      const msg = l.message || '';
+      const preview = msg.length > 45 ? msg.slice(0,45)+'…' : (msg||'—');
+      return `<tr>
+        <td class="td-time">${time}</td>
+        <td class="td-main">${l.name||'—'}</td>
+        <td><a href="mailto:${l.email||''}" style="color:var(--blue);text-decoration:none">${l.email||'—'}</a></td>
+        <td>${l.phone||'—'}</td>
+        <td class="td-msg" onclick="openMsgModal(${i})" title="Click to read full message">${preview}</td>
+      </tr>`;
+    }).join('');
+    return `<table><thead><tr><th>Date</th><th>Name</th><th>Email</th><th>Phone</th><th>Message</th></tr></thead><tbody>${rows}</tbody></table>`;
   }
 
   // ── Message modal
@@ -688,52 +776,57 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
   document.getElementById('msg-close').addEventListener('click', () => document.getElementById('msg-overlay').classList.remove('open'));
   document.getElementById('msg-overlay').addEventListener('click', e => { if (e.target===document.getElementById('msg-overlay')) document.getElementById('msg-overlay').classList.remove('open'); });
 
-  // ── Time chart
-  let timeMode = 'day';
+  // ── Time chart  (mode: 'hour' = 24h of day | 'day' = 7 days of week)
+  let timeMode = 'hour';
   let _cachedEvents = [];
+  const DAY_NAMES = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
   function renderTimeChart(events) {
     _cachedEvents = events;
     const views = events.filter(e => e.event_type === 'page_view');
     let buckets=[], labels=[], footLabels=[];
-    if (timeMode==='hour') {
+
+    if (timeMode === 'hour') {
+      // 24 buckets: total visits per hour of day (all-time)
       buckets = Array(24).fill(0);
-      views.forEach(e => buckets[new Date(e.created_at).getHours()]++);
-      labels = buckets.map((c,h) => `${h}h — ${c} visite${c!==1?'s':''}`);
-      footLabels = Array(24).fill(''); [0,6,12,18,23].forEach(h => footLabels[h]=h+'h');
-    } else if (timeMode==='day') {
-      const map={};
-      for (let i=29;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i); map[d.toISOString().slice(0,10)]=0; }
-      views.forEach(e => { const k=e.created_at.slice(0,10); if(k in map) map[k]++; });
-      const keys=Object.keys(map);
-      buckets=keys.map(k=>map[k]);
-      labels=keys.map(k => { const d=new Date(k); return `${d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} — ${map[k]} visite${map[k]!==1?'s':''}`;});
-      footLabels=keys.map((k,i) => [0,7,14,21,29].includes(i)?new Date(k).toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}):'');
-    } else if (timeMode==='week') {
-      const map={};
-      for (let i=11;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i*7); const mon=new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7)); map[mon.toISOString().slice(0,10)]=0; }
-      views.forEach(e => { const d=new Date(e.created_at); const mon=new Date(d); mon.setDate(d.getDate()-((d.getDay()+6)%7)); const k=mon.toISOString().slice(0,10); if(k in map) map[k]++; });
-      const keys=Object.keys(map);
-      buckets=keys.map(k=>map[k]);
-      labels=keys.map(k=>`Sem. ${new Date(k).toLocaleDateString('fr-FR',{day:'2-digit',month:'short'})} — ${map[k]} visite${map[k]!==1?'s':''}`);
-      footLabels=keys.map((k,i)=>i%3===0?new Date(k).toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}):'');
-    } else if (timeMode==='month') {
-      const map={};
-      for (let i=11;i>=0;i--) { const d=new Date(); d.setMonth(d.getMonth()-i); map[d.toISOString().slice(0,7)]=0; }
-      views.forEach(e => { const k=e.created_at.slice(0,7); if(k in map) map[k]++; });
-      const keys=Object.keys(map);
-      buckets=keys.map(k=>map[k]);
-      labels=keys.map(k=>`${k} — ${map[k]} visite${map[k]!==1?'s':''}`);
-      footLabels=keys.map(k=>new Date(k+'-01').toLocaleDateString('fr-FR',{month:'short'}));
+      views.forEach(e => {
+        // Convert UTC timestamp to local hour
+        buckets[new Date(e.created_at).getHours()]++;
+      });
+      labels = buckets.map((c,h) => `${h}h00 — ${c} visite${c!==1?'s':''}`);
+      footLabels = Array(24).fill('');
+      [0,3,6,9,12,15,18,21,23].forEach(h => footLabels[h] = h+'h');
+      document.getElementById('tc-title').textContent = 'Heure de la journée';
+      document.getElementById('tc-sub').textContent = 'pic = meilleure heure pour poster';
+
+    } else if (timeMode === 'day') {
+      // 7 buckets: Mon–Sun total visits (0=Mon … 6=Sun)
+      buckets = Array(7).fill(0);
+      views.forEach(e => {
+        const dow = (new Date(e.created_at).getDay() + 6) % 7; // JS: 0=Sun → shift to 0=Mon
+        buckets[dow]++;
+      });
+      labels = buckets.map((c,i) => `${DAY_NAMES[i]} — ${c} visite${c!==1?'s':''}`);
+      footLabels = DAY_NAMES;
+      document.getElementById('tc-title').textContent = 'Jour de la semaine';
+      document.getElementById('tc-sub').textContent = 'pic = meilleur jour pour poster';
     }
+
     if (!buckets.length) return;
-    const max=Math.max(...buckets)||1, peakI=buckets.indexOf(max);
-    document.getElementById('time-chart').innerHTML=buckets.map((c,i)=>`<div class="tb-wrap" title="${labels[i]}"><div class="tb-bar${i===peakI?' peak':''}" style="height:${Math.round(c/max*80)}px"></div></div>`).join('');
-    document.getElementById('time-foot').innerHTML=footLabels.map(l=>`<span>${l}</span>`).join('');
+    const max = Math.max(...buckets) || 1;
+    const peakI = buckets.indexOf(max);
+    document.getElementById('time-chart').innerHTML = buckets.map((c,i) =>
+      `<div class="tb-wrap" title="${labels[i]}"><div class="tb-bar${i===peakI?' peak':''}" style="height:${Math.round(c/max*80)}px"></div></div>`
+    ).join('');
+    document.getElementById('time-foot').innerHTML = footLabels.map(l=>`<span>${l}</span>`).join('');
   }
+
   document.querySelectorAll('.time-tab').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.time-tab').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active'); timeMode=btn.dataset.mode; renderTimeChart(_cachedEvents);
+      document.querySelectorAll('.time-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      timeMode = btn.dataset.mode;
+      renderTimeChart(_cachedEvents);
     });
   });
 
@@ -856,6 +949,7 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     if (e.key==='Escape') {
       document.getElementById('msg-overlay').classList.remove('open');
       document.getElementById('tour-overlay').classList.remove('open');
+      document.getElementById('table-overlay').classList.remove('open');
     }
   });
 
