@@ -163,6 +163,14 @@
     .tcard-scroll { max-height:420px; overflow-y:auto; }
     .tcard-scroll table thead th { position:sticky; top:0; z-index:1; background:#fafafa; }
 
+    /* Toggle pill */
+    .toggle-pill { display:inline-flex; border:.5px solid var(--border); border-radius:20px; overflow:hidden; }
+    .toggle-pill button { font-family:var(--font); font-size:11px; font-weight:500; padding:4px 12px; border:none; background:var(--bg); color:var(--sub); cursor:pointer; transition:all .15s; }
+    .toggle-pill button.active { background:var(--text); color:#fff; }
+
+    /* Info note */
+    .info-note { font-size:11px; color:var(--muted); padding:8px 22px 12px; line-height:1.5; }
+
     /* SQL box */
     .sql-box { background:var(--card); border-radius:var(--r); padding:20px 22px; box-shadow:var(--shadow); }
     .sql-title { font-size:11px; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; }
@@ -262,9 +270,9 @@
     <!-- Metrics -->
     <div class="metrics-grid" id="metrics">
       <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Total Visits</div></div>
-      <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Unique Visitors</div></div>
+      <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Unique People</div></div>
+      <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Avg. Time on Page</div></div>
       <div class="mc blue"><div class="mc-val">—</div><div class="mc-lbl">Leads</div></div>
-      <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Conversion</div></div>
     </div>
 
     <!-- Device + Visitors -->
@@ -327,9 +335,14 @@
     <!-- Events table (scrollable full database) -->
     <div class="tcard">
       <div class="tcard-head">
-        <span class="tcard-title">All Activity</span>
+        <span class="tcard-title">Page Views</span>
         <span class="tcard-count" id="events-count">—</span>
+        <div class="toggle-pill" style="margin-left:auto">
+          <button id="toggle-pv" class="active" onclick="setEventsMode('pageviews')">Page views</button>
+          <button id="toggle-all" onclick="setEventsMode('all')">All events</button>
+        </div>
       </div>
+      <div class="info-note" id="events-note">Each row = one unique visit. <strong>Heartbeats</strong> (session pings sent every ~45 s while someone is on the page) are hidden — toggle "All events" to see them.</div>
       <div class="tcard-scroll" id="events-table"><div class="state-empty">—</div></div>
     </div>
 
@@ -467,6 +480,8 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
   function detectPlatform(referrer) {
     const r = (referrer || '').toLowerCase();
     if (!r || r === 'direct') return 'Direct';
+    // Facebook click-tracking URLs embed fbclid in the destination URL itself
+    if (r.includes('fbclid'))                                 return 'Facebook';
     if (r.includes('instagram'))                              return 'Instagram';
     if (r.includes('facebook') || r.includes('fb.com'))      return 'Facebook';
     if (r.includes('linkedin'))                               return 'LinkedIn';
@@ -535,18 +550,72 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
       `<div class="plat-donut">${svg}</div><div class="plat-legend">${legend}</div>`;
   }
 
+  // ── Events display mode ('pageviews' | 'all')
+  let eventsMode = 'pageviews';
+  let _allEvents = [];
+  function setEventsMode(mode) {
+    eventsMode = mode;
+    document.getElementById('toggle-pv').classList.toggle('active', mode === 'pageviews');
+    document.getElementById('toggle-all').classList.toggle('active', mode === 'all');
+    document.getElementById('events-note').style.display = mode === 'pageviews' ? '' : 'none';
+    renderEventsTable(_allEvents, mode);
+  }
+
+  function renderEventsTable(events, mode) {
+    const rows = mode === 'pageviews'
+      ? events.filter(e => e.event_type === 'page_view')
+      : events;
+    document.getElementById('events-count').textContent =
+      mode === 'pageviews'
+        ? rows.length + ' page views'
+        : events.length + ' events (' + events.filter(e=>e.event_type==='heartbeat').length + ' heartbeats)';
+    if (!rows.length) {
+      document.getElementById('events-table').innerHTML = '<div class="state-empty">No events yet.</div>';
+      return;
+    }
+    const evRows = rows.map(e => {
+      const d = new Date(e.created_at);
+      const time = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+      const tagCls = e.event_type==='form_submit'?'tag-form':e.event_type==='demander_visite'?'tag-booking':e.event_type==='heartbeat'?'tag-device':'tag-view';
+      const label = {page_view:'Page view',demander_visite:'CTA click',form_submit:'Form submit',modal_open:'Modal open',heartbeat:'Heartbeat ♡'}[e.event_type]||e.event_type.replace(/_/g,' ');
+      const platform = detectPlatform(e.referrer);
+      const platColor = PLATFORM_COLORS[platform] || '#aeaeb2';
+      return `<tr>
+        <td class="td-time">${time}</td>
+        <td><span class="tag ${tagCls}">${label}</span></td>
+        <td><span class="tag tag-device">${e.device||'—'}</span></td>
+        <td class="td-time" title="${e.visitor_id||''}">${e.visitor_id?e.visitor_id.slice(-6):'—'}</td>
+        <td><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub)"><span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0"></span>${platform}</span></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('events-table').innerHTML = `<table><thead><tr><th>Time</th><th>Event</th><th>Device</th><th>Visitor ID</th><th>Source</th></tr></thead><tbody>${evRows}</tbody></table>`;
+  }
+
   function render(events, leads) {
+    _allEvents = events;
     const views  = events.filter(e => e.event_type === 'page_view');
     const vids   = views.map(e => e.visitor_id).filter(Boolean);
     const unique = vids.length ? new Set(vids).size : views.length;
     const hasVids = vids.length > 0;
-    const conv   = unique ? (leads.length / unique * 100).toFixed(1) + '%' : '—';
+
+    // Avg time on page: count heartbeats per visitor, each = ~45s of engagement
+    const hbPerVid = {};
+    events.filter(e => e.event_type === 'heartbeat' && e.visitor_id).forEach(e => {
+      hbPerVid[e.visitor_id] = (hbPerVid[e.visitor_id] || 0) + 1;
+    });
+    const pvVids = new Set(vids);
+    const hbCounts = Object.entries(hbPerVid).filter(([v]) => pvVids.has(v)).map(([,c]) => c);
+    let avgTimeStr = '—';
+    if (hbCounts.length) {
+      const avgSec = Math.round((hbCounts.reduce((a,b)=>a+b,0) / hbCounts.length) * 45);
+      avgTimeStr = avgSec >= 60 ? Math.floor(avgSec/60) + 'm ' + (avgSec%60) + 's' : avgSec + 's';
+    }
 
     document.getElementById('metrics').innerHTML = `
       <div class="mc"><div class="mc-val">${views.length}</div><div class="mc-lbl">Total Visits</div><div class="mc-sub">page loads</div></div>
-      <div class="mc"><div class="mc-val">${unique}</div><div class="mc-lbl">Unique Visitors</div><div class="mc-sub">${hasVids ? 'by visitor ID' : 'estimated'}</div></div>
-      <div class="mc blue"><div class="mc-val">${leads.length}</div><div class="mc-lbl">Leads</div><div class="mc-sub">form submissions</div></div>
-      <div class="mc"><div class="mc-val">${conv}</div><div class="mc-lbl">Conversion</div><div class="mc-sub">leads / unique visitors</div></div>`;
+      <div class="mc"><div class="mc-val">${unique}</div><div class="mc-lbl">Unique People</div><div class="mc-sub">${hasVids ? '1 per visitor ID' : 'estimated'}</div></div>
+      <div class="mc"><div class="mc-val" style="font-size:28px;padding-top:8px">${avgTimeStr}</div><div class="mc-lbl">Avg. Time on Page</div><div class="mc-sub">from heartbeat pings</div></div>
+      <div class="mc blue"><div class="mc-val">${leads.length}</div><div class="mc-lbl">Leads</div><div class="mc-sub">form submissions</div></div>`;
 
     const dc = { desktop:0, mobile:0, tablet:0 };
     views.forEach(e => { dc[e.device||'desktop']++; });
@@ -598,28 +667,8 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
       window._leads = leads;
     }
 
-    // Events table — full scrollable database
-    document.getElementById('events-count').textContent = events.length + ' events';
-    if (!events.length) {
-      document.getElementById('events-table').innerHTML = '<div class="state-empty">No events yet.</div>';
-      return;
-    }
-    const evRows = events.map(e => {
-      const d = new Date(e.created_at);
-      const time = d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}) + ' · ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-      const tagCls = e.event_type==='form_submit'?'tag-form':e.event_type==='demander_visite'?'tag-booking':'tag-view';
-      const label = {page_view:'Page view',demander_visite:'CTA click',form_submit:'Form submit',modal_open:'Modal open',heartbeat:'Heartbeat'}[e.event_type]||e.event_type.replace(/_/g,' ');
-      const platform = detectPlatform(e.referrer);
-      const platColor = PLATFORM_COLORS[platform] || '#aeaeb2';
-      return `<tr>
-        <td class="td-time">${time}</td>
-        <td><span class="tag ${tagCls}">${label}</span></td>
-        <td><span class="tag tag-device">${e.device||'—'}</span></td>
-        <td class="td-time">${e.visitor_id?e.visitor_id.slice(-6):'—'}</td>
-        <td><span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--sub)"><span style="width:7px;height:7px;border-radius:50%;background:${platColor};display:inline-block;flex-shrink:0"></span>${platform}</span></td>
-      </tr>`;
-    }).join('');
-    document.getElementById('events-table').innerHTML = `<table><thead><tr><th>Time</th><th>Event</th><th>Device</th><th>Visitor</th><th>Source</th></tr></thead><tbody>${evRows}</tbody></table>`;
+    // Events table
+    renderEventsTable(events, eventsMode);
   }
 
   // ── Message modal
