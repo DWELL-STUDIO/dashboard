@@ -279,9 +279,9 @@
     <!-- Date filter -->
     <div class="filter-bar">
       <span class="filter-label">From</span>
-      <input type="date" class="filter-date" id="date-from" onchange="loadAll()">
+      <input type="date" class="filter-date" id="date-from" autocomplete="off" onchange="updateFilterBadge();loadAll()">
       <span class="filter-label">to</span>
-      <input type="date" class="filter-date" id="date-to" onchange="loadAll()">
+      <input type="date" class="filter-date" id="date-to" autocomplete="off" onchange="updateFilterBadge();loadAll()">
       <button class="btn btn-blue" onclick="resetFilter()">All time</button>
       <span class="filter-note" id="filter-note"></span>
     </div>
