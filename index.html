@@ -315,7 +315,7 @@
 
     <!-- Platform / Traffic Sources -->
     <div class="ic">
-      <div class="ic-title">Traffic Sources — Platforms</div>
+      <div class="ic-title">Traffic Sources — Unique Visitors per Platform</div>
       <div class="plat-wrap" id="platform-chart">
         <div class="state-empty" style="padding:16px 0;width:100%">—</div>
       </div>
@@ -557,12 +557,17 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
 
   function renderPlatformChart(views) {
     const counts = {};
-    views.forEach(e => {
+    const seen = new Set();
+    // views arrive newest-first; iterate reversed so first visit wins for attribution
+    [...views].reverse().forEach(e => {
+      const vid = e.visitor_id;
+      if (vid && seen.has(vid)) return; // already counted this person
+      if (vid) seen.add(vid);
       const p = detectPlatform(e.referrer);
       counts[p] = (counts[p] || 0) + 1;
     });
 
-    const total = views.length;
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (!total) {
       document.getElementById('platform-chart').innerHTML =
         '<div class="state-empty" style="padding:16px 0;width:100%">No visit data yet.</div>';
@@ -595,7 +600,7 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
       ${paths}
       <circle cx="${cx}" cy="${cy}" r="${r - 2}" fill="white"/>
       <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="20" font-weight="200" fill="#1d1d1f" font-family="-apple-system,sans-serif">${total}</text>
-      <text x="${cx}" y="${cy + 10}" text-anchor="middle" font-size="9" fill="#6e6e73" font-family="-apple-system,sans-serif" letter-spacing="0.04em">VISITS</text>
+      <text x="${cx}" y="${cy + 10}" text-anchor="middle" font-size="9" fill="#6e6e73" font-family="-apple-system,sans-serif" letter-spacing="0.04em">PEOPLE</text>
     </svg>`;
 
     const legend = entries.map(([p, c]) => {
