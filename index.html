@@ -60,15 +60,14 @@
     .ln-updated { font-size:11px; color:var(--muted); }
 
     /* Metrics */
-    .metrics-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
-    @media(max-width:700px) { .metrics-grid { grid-template-columns:repeat(2,1fr); } }
-    .mc { background:var(--card); border-radius:var(--r); padding:20px 18px 16px; box-shadow:var(--shadow); }
+    .metrics-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    @media(max-width:600px) { .metrics-grid { grid-template-columns:repeat(2,1fr); } }
+    .mc { background:var(--card); border-radius:var(--r); padding:22px 22px 18px; box-shadow:var(--shadow); }
     .mc.blue { background:var(--blue); }
     .mc.blue .mc-val,.mc.blue .mc-lbl,.mc.blue .mc-sub { color:#fff; }
     .mc.blue .mc-lbl { opacity:.75; } .mc.blue .mc-sub { opacity:.6; }
-    .mc-val { font-size:38px; font-weight:200; letter-spacing:-.03em; line-height:1; color:var(--text); margin-bottom:6px; }
-    .mc-val.sm { font-size:26px; padding-top:6px; }
-    .mc-lbl { font-size:11px; font-weight:500; color:var(--sub); }
+    .mc-val { font-size:44px; font-weight:200; letter-spacing:-.03em; line-height:1; color:var(--text); margin-bottom:6px; }
+    .mc-lbl { font-size:12px; font-weight:500; color:var(--sub); }
     .mc-sub { font-size:11px; color:var(--muted); margin-top:3px; }
 
     /* Two col */
@@ -299,7 +298,6 @@
       <div class="mc blue"><div class="mc-val">—</div><div class="mc-lbl">Unique Visitors</div></div>
       <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Page Views</div></div>
       <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Conversion</div></div>
-      <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Avg. Time on Page</div></div>
       <div class="mc"><div class="mc-val">—</div><div class="mc-lbl">Leads</div></div>
     </div>
 
@@ -508,15 +506,19 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
     document.getElementById('error').style.display = 'none';
     const dp = dateParams();
     try {
-      const [evR, ldR] = await Promise.all([
-        fetch(`${SB}/rest/v1/events?select=*&page_id=eq.${PAGE}&order=created_at.desc&limit=1000${dp}`, { headers: H }),
+      // Fetch page_views without a row-cap so all history comes through.
+      // Heartbeats are fetched separately (limited) only for the "All events" table toggle.
+      const [pvR, ldR, hbR] = await Promise.all([
+        fetch(`${SB}/rest/v1/events?select=*&page_id=eq.${PAGE}&event_type=eq.page_view&order=created_at.desc${dp}`, { headers: H }),
         fetch(`${SB}/rest/v1/leads?select=*&page_id=eq.${PAGE}&order=created_at.desc${dp}`, { headers: H }),
+        fetch(`${SB}/rest/v1/events?select=id,event_type,visitor_id,device,referrer,created_at&page_id=eq.${PAGE}&event_type=eq.heartbeat&order=created_at.desc&limit=300${dp}`, { headers: H }),
       ]);
-      if (!evR.ok) throw new Error('events HTTP ' + evR.status);
+      if (!pvR.ok) throw new Error('events HTTP ' + pvR.status);
       if (!ldR.ok) throw new Error('leads HTTP ' + ldR.status);
-      const [events, leads] = await Promise.all([evR.json(), ldR.json()]);
-      render(events, leads);
-      renderTimeChart(events);
+      const [pageViews, leads, heartbeats] = await Promise.all([pvR.json(), ldR.json(), hbR.ok ? hbR.json() : []]);
+      _allEvents = [...pageViews, ...heartbeats].sort((a,b) => b.created_at.localeCompare(a.created_at));
+      render(pageViews, leads);
+      renderTimeChart(pageViews);
       document.getElementById('updated').textContent =
         new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
     } catch(e) {
@@ -693,33 +695,18 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
   document.getElementById('table-close').addEventListener('click', () => document.getElementById('table-overlay').classList.remove('open'));
   document.getElementById('table-overlay').addEventListener('click', e => { if (e.target===document.getElementById('table-overlay')) document.getElementById('table-overlay').classList.remove('open'); });
 
-  function render(events, leads) {
-    _allEvents = events;
-    const views  = events.filter(e => e.event_type === 'page_view');
+  // render() receives only page_view events (fetched separately, no row cap)
+  function render(views, leads) {
     const vids   = views.map(e => e.visitor_id).filter(Boolean);
     const unique = vids.length ? new Set(vids).size : views.length;
     const hasVids = vids.length > 0;
-
-    // Avg time on page: count heartbeats per visitor, each = ~45s of engagement
-    const hbPerVid = {};
-    events.filter(e => e.event_type === 'heartbeat' && e.visitor_id).forEach(e => {
-      hbPerVid[e.visitor_id] = (hbPerVid[e.visitor_id] || 0) + 1;
-    });
-    const pvVids = new Set(vids);
-    const hbCounts = Object.entries(hbPerVid).filter(([v]) => pvVids.has(v)).map(([,c]) => c);
-    let avgTimeStr = '—';
-    if (hbCounts.length) {
-      const avgSec = Math.round((hbCounts.reduce((a,b)=>a+b,0) / hbCounts.length) * 45);
-      avgTimeStr = avgSec >= 60 ? Math.floor(avgSec/60) + 'm ' + (avgSec%60) + 's' : avgSec + 's';
-    }
-
-    const conv = unique ? (leads.length / unique * 100).toFixed(1) + '%' : '—';
     const returningViews = views.length - unique;
+    const conv   = unique ? (leads.length / unique * 100).toFixed(1) + '%' : '—';
+
     document.getElementById('metrics').innerHTML = `
       <div class="mc blue"><div class="mc-val">${unique}</div><div class="mc-lbl">Unique Visitors</div><div class="mc-sub">each person counted once</div></div>
-      <div class="mc"><div class="mc-val">${views.length}</div><div class="mc-lbl">Page Views</div><div class="mc-sub">${returningViews > 0 ? returningViews + ' return visit' + (returningViews !== 1 ? 's' : '') : 'all first-time'}</div></div>
+      <div class="mc"><div class="mc-val">${views.length}</div><div class="mc-lbl">Page Views</div><div class="mc-sub">${returningViews > 0 ? returningViews + ' return visit' + (returningViews !== 1 ? 's' : '') : 'all first visits'}</div></div>
       <div class="mc"><div class="mc-val">${conv}</div><div class="mc-lbl">Conversion</div><div class="mc-sub">leads ÷ visitors</div></div>
-      <div class="mc"><div class="mc-val sm">${avgTimeStr}</div><div class="mc-lbl">Avg. Time on Page</div><div class="mc-sub">heartbeat estimate</div></div>
       <div class="mc"><div class="mc-val">${leads.length}</div><div class="mc-lbl">Leads</div><div class="mc-sub">form submissions</div></div>`;
 
     const dc = { desktop:0, mobile:0, tablet:0 };
@@ -807,9 +794,8 @@ DELETE FROM leads  WHERE page_id = 'villa-espinette';</div>
   let _cachedEvents = [];
   const DAY_NAMES = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 
-  function renderTimeChart(events) {
-    _cachedEvents = events;
-    const views = events.filter(e => e.event_type === 'page_view');
+  function renderTimeChart(views) {
+    _cachedEvents = views;
     let buckets=[], labels=[], footLabels=[];
 
     if (timeMode === 'hour') {
